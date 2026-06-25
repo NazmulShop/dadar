@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Dadar Shop</title>
+    <meta name="description" content="Dadar Shop — mobile-first online marketplace." />
+    <script>
+      try {
+        var t = localStorage.getItem("dadar.theme.v1") || "system";
+        var dark =
+          t === "dark" ||
+          (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
+    <script>
+      // Belt-and-suspenders: block pinch / double-tap zoom on iOS Safari,
+      // which sometimes ignores the maximum-scale viewport directive.
+      document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, { passive: false });
+      document.addEventListener('gesturechange', function(e){ e.preventDefault(); }, { passive: false });
+      document.addEventListener('dblclick', function(e){ e.preventDefault(); }, { passive: false });
+      document.addEventListener('touchmove', function(e){ if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

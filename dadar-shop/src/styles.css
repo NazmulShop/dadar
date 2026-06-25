@@ -1,0 +1,328 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Dadar Shop — Premium Design System
+ * Apple-inspired typography & motion, Daraz-style density,
+ * editorial warmth via emerald/cream/amber palette.
+ *
+ * Token philosophy:
+ *  - Color tokens in oklch.
+ *  - Spacing scale tuned for mobile-first compact retail UI.
+ *  - Glassmorphism vars for the floating nav and modals.
+ *  - All values exposed via @theme inline so Tailwind utilities work.
+ */
+
+@theme inline {
+  --font-display: "SF Pro Display", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "SF Pro Text", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", "Iowan Old Style", "Apple Garamond", Georgia, serif;
+
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 3px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --radius-3xl: calc(var(--radius) + 20px);
+  --radius-pill: 999px;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-amber: var(--amber);
+  --color-amber-foreground: var(--amber-foreground);
+  --color-coral: var(--coral);
+  --color-coral-foreground: var(--coral-foreground);
+  --color-success: var(--success);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --shadow-soft: 0 1px 2px oklch(0.2 0.04 160 / 0.04), 0 4px 16px oklch(0.2 0.04 160 / 0.06);
+  --shadow-card: 0 2px 8px oklch(0.2 0.04 160 / 0.05), 0 12px 32px oklch(0.2 0.04 160 / 0.08);
+  --shadow-float: 0 8px 24px oklch(0.15 0.03 160 / 0.12), 0 24px 64px oklch(0.15 0.03 160 / 0.14);
+  --shadow-glow: 0 12px 40px oklch(0.45 0.12 160 / 0.28);
+}
+
+:root {
+  --radius: 1rem;
+
+  /* Base canvas — warm cream like premium retail */
+  --background: oklch(0.985 0.008 90);
+  --foreground: oklch(0.18 0.025 170);
+  --surface: oklch(1 0 0);
+  --surface-muted: oklch(0.965 0.012 90);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.025 170);
+  --popover: oklch(0.995 0.005 90);
+  --popover-foreground: oklch(0.18 0.025 170);
+
+  /* Brand — deep forest emerald, inspired by reference */
+  --primary: oklch(0.32 0.06 165);
+  --primary-foreground: oklch(0.985 0.008 90);
+  --primary-soft: oklch(0.94 0.025 165);
+
+  --secondary: oklch(0.95 0.012 90);
+  --secondary-foreground: oklch(0.22 0.03 170);
+
+  --muted: oklch(0.955 0.01 90);
+  --muted-foreground: oklch(0.48 0.015 170);
+
+  --accent: oklch(0.94 0.025 165);
+  --accent-foreground: oklch(0.32 0.06 165);
+
+  /* Amber — premium gold accent for sale/CTA */
+  --amber: oklch(0.82 0.15 75);
+  --amber-foreground: oklch(0.22 0.05 75);
+
+  /* Coral — discount badges */
+  --coral: oklch(0.66 0.19 25);
+  --coral-foreground: oklch(0.99 0 0);
+
+  --success: oklch(0.62 0.14 160);
+  --destructive: oklch(0.6 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --border: oklch(0.91 0.008 90);
+  --border-strong: oklch(0.85 0.01 90);
+  --input: oklch(0.92 0.008 90);
+  --ring: oklch(0.32 0.06 165);
+
+  --chart-1: oklch(0.32 0.06 165);
+  --chart-2: oklch(0.82 0.15 75);
+  --chart-3: oklch(0.66 0.19 25);
+  --chart-4: oklch(0.55 0.08 200);
+  --chart-5: oklch(0.7 0.12 140);
+
+  /* Glassmorphism */
+  --glass-bg: oklch(1 0 0 / 0.62);
+  --glass-border: oklch(1 0 0 / 0.55);
+  --glass-blur: 28px;
+
+  /* Gradients */
+  --gradient-hero: linear-gradient(135deg, oklch(0.32 0.06 165) 0%, oklch(0.42 0.08 170) 100%);
+  --gradient-amber: linear-gradient(135deg, oklch(0.85 0.16 80) 0%, oklch(0.74 0.18 55) 100%);
+  --gradient-cream: linear-gradient(180deg, oklch(0.985 0.008 90) 0%, oklch(0.96 0.015 85) 100%);
+}
+
+.dark {
+  --background: oklch(0.16 0.02 170);
+  --gradient-cream: linear-gradient(180deg, oklch(0.16 0.02 170) 0%, oklch(0.13 0.02 170) 100%);
+  --foreground: oklch(0.97 0.005 90);
+  --surface: oklch(0.21 0.025 170);
+  --surface-muted: oklch(0.24 0.025 170);
+  --card: oklch(0.21 0.025 170);
+  --card-foreground: oklch(0.97 0.005 90);
+  --popover: oklch(0.21 0.025 170);
+  --popover-foreground: oklch(0.97 0.005 90);
+  --primary: oklch(0.78 0.1 165);
+  --primary-foreground: oklch(0.16 0.02 170);
+  --primary-soft: oklch(0.28 0.04 165);
+  --secondary: oklch(0.26 0.025 170);
+  --secondary-foreground: oklch(0.97 0.005 90);
+  --muted: oklch(0.26 0.025 170);
+  --muted-foreground: oklch(0.72 0.015 90);
+  --accent: oklch(0.28 0.04 165);
+  --accent-foreground: oklch(0.92 0.04 165);
+  --amber: oklch(0.82 0.15 75);
+  --amber-foreground: oklch(0.18 0.04 75);
+  --coral: oklch(0.7 0.19 25);
+  --coral-foreground: oklch(0.99 0 0);
+  --success: oklch(0.72 0.14 160);
+  --destructive: oklch(0.65 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(1 0 0 / 0.08);
+  --border-strong: oklch(1 0 0 / 0.16);
+  --input: oklch(1 0 0 / 0.1);
+  --ring: oklch(0.78 0.1 165);
+  --glass-bg: oklch(0.21 0.025 170 / 0.6);
+  --glass-border: oklch(1 0 0 / 0.12);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    height: 100%;
+    background: var(--gradient-cream);
+    overflow-x: hidden;
+  }
+  body {
+    min-height: 100%;
+    background: var(--gradient-cream);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    overflow-x: hidden;
+  }
+  #root {
+    min-height: 100vh;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+  ::selection {
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+  }
+}
+
+/* ============================================================
+ * Custom utilities — premium surface treatments
+ * ============================================================ */
+
+@utility glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid var(--glass-border);
+}
+
+@utility glass-strong {
+  background: color-mix(in oklab, var(--surface) 78%, transparent);
+  backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid var(--glass-border);
+}
+
+@utility surface-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-soft);
+}
+
+@utility shadow-float {
+  box-shadow: var(--shadow-float);
+}
+
+@utility shadow-card {
+  box-shadow: var(--shadow-card);
+}
+
+@utility bg-hero-gradient {
+  background: var(--gradient-hero);
+}
+
+@utility bg-amber-gradient {
+  background: var(--gradient-amber);
+}
+
+@utility text-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+  font-weight: 600;
+}
+
+@utility text-serif {
+  font-family: var(--font-serif);
+  letter-spacing: -0.01em;
+}
+
+@utility tap-scale {
+  transition: transform 200ms cubic-bezier(0.32, 0.72, 0.34, 1);
+}
+@utility tap-scale-active {
+  &:active {
+    transform: scale(0.94);
+    transition: transform 120ms cubic-bezier(0.32, 0.72, 0.34, 1);
+  }
+}
+
+/* Floating action buttons: a soft lift + shadow growth on hover/focus, and a
+   springier press-down than the default tap-scale, for elements that need
+   to feel more "alive" (bottom nav items, floating action buttons). */
+@utility tap-bounce {
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 200ms ease;
+  &:hover {
+    transform: translateY(-2px) scale(1.04);
+  }
+  &:active {
+    transform: scale(0.92);
+    transition: transform 100ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+@utility hide-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+/* The app's mobile-first content column. Previously this was a hardcoded
+   max-w-[440px], which left a visible blank strip of the bare --background
+   color on phones wider than 440px (e.g. Pro Max-class devices). Using
+   100% width with a generous cap fixes that — full-bleed on every phone,
+   while still not stretching awkwardly wide on tablets/desktop. */
+@utility mobile-shell {
+  width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+/* Subtle floating animation for the bottom nav */
+@keyframes float-in {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@utility animate-float-in {
+  animation: float-in 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Gentle breathing glow for floating action buttons, to draw the eye
+   without being distracting. Respects reduced-motion preference below. */
+@keyframes float-pulse {
+  0%, 100% { box-shadow: 0 8px 20px -8px color-mix(in oklab, var(--color-primary) 45%, transparent); }
+  50% { box-shadow: 0 10px 26px -6px color-mix(in oklab, var(--color-primary) 65%, transparent); }
+}
+@utility animate-float-pulse {
+  animation: float-pulse 2800ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-in,
+  .animate-float-pulse {
+    animation: none !important;
+  }
+  .tap-scale,
+  .tap-bounce {
+    transition: none !important;
+  }
+}
+
+/* === Hard zoom-lock + mobile fullscreen === */
+html, body {
+  touch-action: pan-x pan-y;          /* disable pinch-zoom on iOS Safari */
+  -webkit-text-size-adjust: 100%;     /* prevent auto text upscaling */
+  text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+html, body, #root {
+  min-height: 100dvh;                 /* full viewport height on every mobile */
+  width: 100%;
+}
