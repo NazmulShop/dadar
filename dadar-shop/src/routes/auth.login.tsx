@@ -42,6 +42,13 @@ function LoginPage() {
   const [ticket, setTicket] = useState(adminTicket ?? "");
   const [otpCode, setOtpCode] = useState("");
   const [secretKey, setSecretKey] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = setInterval(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cooldown]);
 
   const [busy, setBusy] = useState(false);
 
@@ -77,6 +84,7 @@ function LoginPage() {
       if (result.kind === "admin_verification_required") {
         setTicket(result.ticket);
         setStage("admin-otp");
+        setCooldown(60);
         toast.success(
           result.devOtp
             ? (lang === "bn" ? "কোড পাঠানো হয়েছে। ডেমো OTP: " : "Code sent. Demo OTP: ") +
@@ -92,6 +100,27 @@ function LoginPage() {
         lang === "bn" ? `স্বাগতম, ${u.name}` : `Welcome back, ${u.name}`,
       );
       goToDestination(u.role);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resendAdminOtp = async () => {
+    if (cooldown > 0 || busy) return;
+    setBusy(true);
+    try {
+      const result = await login(email, password, remember);
+      if (result.kind === "admin_verification_required") {
+        setTicket(result.ticket);
+        setCooldown(60);
+        toast.success(
+          lang === "bn"
+            ? "নতুন কোড পাঠানো হয়েছে। আপনার ইমেইল চেক করুন।"
+            : "New code sent — check your inbox.",
+        );
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     } finally {
@@ -155,6 +184,16 @@ function LoginPage() {
           <PrimaryButton type="submit" loading={busy}>
             {t("auth.verifyOtp")}
           </PrimaryButton>
+          <button
+            type="button"
+            onClick={resendAdminOtp}
+            disabled={cooldown > 0 || busy}
+            className="w-full text-sm font-medium text-primary hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed"
+          >
+            {cooldown > 0
+              ? (lang === "bn" ? "আবার পাঠান " : "Resend in ") + cooldown + "s"
+              : lang === "bn" ? "কোড আসেনি? আবার পাঠান" : "Didn't get the code? Resend"}
+          </button>
         </form>
       </AuthLayout>
     );

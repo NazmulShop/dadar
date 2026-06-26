@@ -483,13 +483,12 @@ app.post("/login", async (c) => {
       await sendOtpEmail(c.env, {
         to: user.email,
         otp,
-        purpose: "Admin Sign-In Verification",
+        purpose: "Login Verification",
         name: user.name,
       });
     } catch (err: any) {
-      // Cooldown (429) means a code was already sent very recently — that's
-      // fine, the admin can still use that code. Any other failure should
-      // not silently let them through; surface it instead of issuing a ticket.
+      // Cooldown (429) means a code was already sent very recently —
+      // that's fine, the admin can still use that code.
       if (err?.status !== 429) {
         return c.json({ error: "Failed to send verification code. Please try again." }, 500);
       }
@@ -507,9 +506,8 @@ app.post("/login", async (c) => {
       requiresAdminVerification: true,
       stage: "otp",
       ticket,
-      // devOtp is only ever present when BREVO_API_KEY is unset (local dev —
-      // see isDev()); in production it is always omitted, so the real code
-      // only ever reaches the admin via email.
+      // devOtp is only present in local dev (no BREVO_API_KEY) so the
+      // real OTP code only ever reaches the admin via email in production.
       ...(isDev(c.env) && devOtp && { devOtp }),
     });
   }

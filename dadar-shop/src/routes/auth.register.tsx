@@ -18,7 +18,7 @@ function RegisterPage() {
   const [form, setForm] = useState({
     name: "",
     email: "",
-    phone: "",
+    phone: "+880",
     password: "",
     confirm: "",
     secretKey: "",

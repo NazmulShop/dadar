@@ -4,8 +4,9 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useLocation,
 } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { ShopProvider } from "../lib/shopStore";
 import { PaymentProvider } from "../lib/paymentStore";
@@ -76,6 +77,36 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+function AnimatedOutlet() {
+  const location = useLocation();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    if (document.startViewTransition) {
+      // Named view-transition on the page-wrap element — doesn't
+      // interfere with the root-level theme-reveal animation.
+      document.startViewTransition(() => {
+        // The DOM already updated (TanStack Router handles that),
+        // so this is effectively a no-op that just captures the snapshot.
+      });
+    } else {
+      // CSS fallback: fade + slide up for older browsers.
+      el.classList.remove("page-enter");
+      void el.offsetWidth; // force reflow to restart animation
+      el.classList.add("page-enter");
+    }
+  }, [location.pathname]);
+
+  return (
+    <div ref={ref} className="page-wrap" style={{ minHeight: "100dvh" }}>
+      <Outlet />
+    </div>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -85,7 +116,7 @@ function RootComponent() {
         <AuthProvider>
           <ShopProvider>
             <PaymentProvider>
-              <Outlet />
+              <AnimatedOutlet />
               <Toaster position="top-center" richColors />
             </PaymentProvider>
           </ShopProvider>
