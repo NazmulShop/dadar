@@ -13,7 +13,7 @@ export const Route = createFileRoute("/auth/otp")({
 });
 
 function OtpPage() {
-  const { requestOtp, verifyOtp, t, lang, otpCooldownSeconds } = useAuth();
+  const { requestOtp, verifyOtp, t, lang } = useAuth();
   const nav = useNavigate();
   const [target, setTarget] = useState("");
   const [code, setCode] = useState("");
@@ -36,7 +36,7 @@ function OtpPage() {
     try {
       const devOtp = await requestOtp("email", target.trim());
       setRequested(true);
-      setCooldown(otpCooldownSeconds);
+      setCooldown(60);
       const isProd = (import.meta as any).env?.MODE === "production";
       if (!isProd && devOtp) {
         toast.success(

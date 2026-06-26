@@ -32,70 +32,12 @@ otherwise leave `wrangler.toml` untouched.
 | `src/index.ts`                        | Hono entry point (`main` in `wrangler.toml`) — CORS, body cap, route mounting, cron `scheduled()` |
 | `src/env.ts`                          | `Env` (`DB`, `SESSIONS_KV`, `RATE_KV`, `APP_URL`, `CORS_ORIGIN`, + optional fields) + `Variables` types — re-exported from `src/index.ts` too |
 | `src/db/schema.ts`, `src/db/index.ts` | Drizzle SQLite schema + per-request `getDb(env)`                       |
-| `src/lib/`                            | `cors`, `ids`, `hash`, `jwt`, `session` (KV-backed), `otpService` (shared 6-digit OTP issue/verify, used by register + login + admin_login + forgot_password), `email` (Brevo via fetch), `superAdmin`, `rateLimit`, `activityLog`, `r2`, `broadcast`, `health`, `startup` |
+| `src/lib/`                            | `cors`, `ids`, `hash`, `jwt`, `session` (KV-backed), `email` (Brevo via fetch), `superAdmin`, `activityLog`, `r2`, `broadcast`, `health`, `startup` |
 | `src/middleware/auth.ts`              | `requireAuth` / `requireAdmin` / `requireSuperAdmin` / `optionalAuth`  |
 | `src/routes/`                         | `health`, `auth`, `uploads` (R2 or D1 fallback), `admin`, `admin-management`, `support`, `account`, `ws` |
 | `src/do/AdminHub.ts`                  | Hibernatable WebSocket DO + 15s health alarm (paid plan only)          |
 | `setup.sh`                            | One-command interactive deploy script for CLI use (creates D1/KV, sets secrets, deploys) |
 | `.dev.vars.example`                   | Template for local `wrangler dev` secrets                              |
-
-## OTP system (shared & reusable)
-
-There is exactly **one** OTP implementation in this codebase —
-`src/lib/otpService.ts` — used by every flow that needs a one-time code:
-
-- User registration (`type = "register"`, stored as `email_verify`)
-- Admin login verification (`type = "admin_login"`)
-- Passwordless OTP login (`type = "otp_login"`)
-- Forgot-password (`type = "forgot_password"`)
-
-Every OTP row carries `target` (email), `code`, `type`, `expiresAt`, `used`.
-Verification always filters on `type` at the database query level — an OTP
-issued for one purpose can never be consumed in another context, even if
-the 6-digit code happens to collide.
-
-Timing (uniform across every type):
-
-- **Expiry: 2 minutes** from issuance.
-- **Resend cooldown: 2 minutes** — a new OTP for the same `(email, type)`
-  pair cannot be requested again until the previous one's 2-minute window
-  has fully elapsed. There is no bypass anywhere, including the admin
-  "resend code" button.
-- **Single-use** — consuming an OTP immediately marks it `used`; issuing a
-  new one for the same `(email, type)` deletes any previous unused row.
-
-On top of the per-target cooldown, every OTP-send and OTP-verify route is
-also rate-limited per IP (`src/lib/rateLimit.ts`, KV-backed) — 10 sends and
-20 verify attempts per 15 minutes — so a single IP can't cycle through many
-different email addresses to route around the per-target cooldown, and code
-guessing is bounded independently of the OTP's own 2-minute lifetime.
-
-## Admin login flow & routes
-
-There are exactly two roles: **Normal User** and **Admin**. The Admin
-account is the single email configured via `ADMIN_EMAIL` (alias:
-`SUPER_ADMIN_EMAIL`) — this check is always server-side; the client never
-supplies or influences a role/`isAdmin` flag.
-
-- **Registration**: `POST /api/auth/register` with `email === ADMIN_EMAIL`
-  is treated as an admin registration candidate. It goes through the same
-  `register`-type OTP flow as a normal user; after OTP verification, the
-  account must additionally supply `ADMIN_SECRET_KEY` (alias:
-  `SUPER_ADMIN_SECRET_KEY`, compared in constant time) before it is
-  actually promoted to Admin.
-- **Login**: `POST /api/auth/login` with `email === ADMIN_EMAIL` never logs
-  in directly — it returns a short-lived ticket instead of a session and
-  emails an `admin_login`-type OTP. The client then completes:
-  1. `POST /api/auth/admin-login/verify-otp` (alias: `POST /api/auth/admin/verify-otp`)
-  2. `POST /api/auth/admin-login/verify-secret` (alias: `POST /api/auth/admin/verify-secret`)
-
-  Only after both succeed is a real session created. The `/admin-login/...`
-  paths are what the bundled frontend calls; the `/admin/...` paths are
-  identical aliases (same handler function, registered twice) provided for
-  any client that expects the literal `/admin/verify-otp` /
-  `/admin/verify-secret` naming.
-- A normal user's `/login` always returns a session directly — no OTP, no
-  secret key.
 
 ## Status
 
@@ -175,9 +117,8 @@ pnpm exec wrangler kv namespace create RATE_KV           # paste id into wrangle
 # 2. Secrets
 pnpm exec wrangler secret put JWT_SECRET                 # required, >= 32 chars (openssl rand -hex 32)
 pnpm exec wrangler secret put BREVO_API_KEY              # optional — OTP emails log to console when absent
-pnpm exec wrangler secret put SENDER_EMAIL               # optional — "Name <email>" OTPs are sent from (alias: BREVO_FROM_EMAIL)
-pnpm exec wrangler secret put ADMIN_EMAIL                # optional, only for the one-time admin bootstrap (alias: SUPER_ADMIN_EMAIL)
-pnpm exec wrangler secret put ADMIN_SECRET_KEY           # optional, >= 16 chars, only for bootstrap (alias: SUPER_ADMIN_SECRET_KEY)
+pnpm exec wrangler secret put SUPER_ADMIN_EMAIL          # optional, only for bootstrap
+pnpm exec wrangler secret put SUPER_ADMIN_SECRET_KEY     # optional, >= 16 chars, only for bootstrap
 pnpm exec wrangler secret put INTERNAL_BROADCAST_SECRET  # required only if ADMIN_HUB is enabled
 
 # 3. (skip if reusing the APP_URL/CORS_ORIGIN already set in wrangler.toml)

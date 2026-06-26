@@ -11,14 +11,8 @@ function otpEmailHtml(
   purpose: string,
   name?: string,
   resetToken?: string,
-  expiresInSeconds: number = 120,
 ): string {
   const greeting = name ? `Hi ${name},` : "Verify your account";
-  const expiryMinutes = Math.max(1, Math.round(expiresInSeconds / 60));
-  const expiryText =
-    expiresInSeconds % 60 === 0
-      ? `${expiryMinutes} minute${expiryMinutes === 1 ? "" : "s"}`
-      : `${expiresInSeconds} seconds`;
   const magicLink = resetToken
     ? `<div style="margin-top:20px;">
          <a href="${appUrl}/auth/reset?token=${encodeURIComponent(resetToken)}"
@@ -40,7 +34,7 @@ function otpEmailHtml(
         ${otp}
       </div>
       <p style="color:#777;font-size:14px;">
-        This code will expire in ${expiryText}.
+        This code will expire in 10 minutes.
       </p>
       ${magicLink}
       <p style="margin-top:30px;font-size:12px;color:#aaa;">
@@ -59,7 +53,6 @@ export async function sendOtpEmail(
     purpose: string;
     name?: string;
     resetToken?: string;
-    expiresInSeconds?: number;
   },
 ): Promise<{ success: boolean; error?: string }> {
   if (!env.BREVO_API_KEY) {
@@ -72,10 +65,8 @@ export async function sendOtpEmail(
   }
 
   // Brevo's "sender" object needs a name + email separately, unlike Resend's
-  // single "Name <email>" string — parse env.SENDER_EMAIL (alias:
-  // BREVO_FROM_EMAIL) into both.
-  const fromRaw =
-    env.SENDER_EMAIL || env.BREVO_FROM_EMAIL || "Dadar Shop <dadarshop.otp@gmail.com>";
+  // single "Name <email>" string — parse env.BREVO_FROM_EMAIL into both.
+  const fromRaw = env.BREVO_FROM_EMAIL || env.SENDER_EMAIL || "Dadar Shop <noreply@dadar.shop>";
   const fromMatch = fromRaw.match(/^\s*(.*?)\s*<(.+)>\s*$/);
   const senderName = fromMatch ? fromMatch[1].replace(/^"|"$/g, "") || "Dadar Shop" : "Dadar Shop";
   const senderEmail = fromMatch ? fromMatch[2] : fromRaw;
@@ -89,14 +80,7 @@ export async function sendOtpEmail(
   if (!safeUrl && (env.NODE_ENV ?? "").toLowerCase() === "production") {
     console.error("[email] Cannot determine a valid frontend URL for email links — set CORS_ORIGIN to your frontend URL");
   }
-  const html = otpEmailHtml(
-    safeUrl || "https://dadar.shop",
-    opts.otp,
-    opts.purpose,
-    opts.name,
-    opts.resetToken,
-    opts.expiresInSeconds,
-  );
+  const html = otpEmailHtml(safeUrl || "https://dadar.shop", opts.otp, opts.purpose, opts.name, opts.resetToken);
 
   try {
     const res = await fetch("https://api.brevo.com/v3/smtp/email", {

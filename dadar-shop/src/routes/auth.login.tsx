@@ -87,8 +87,8 @@ function LoginPage() {
           );
         }
         nav({
-          to: "/auth/admin-otp",
-          search: { ticket: result.ticket, email } as never,
+          to: "/auth/verify-email",
+          search: { mode: "admin", ticket: result.ticket, email } as never,
         });
         return;
       }

@@ -26,7 +26,7 @@ function AdminOtpPage() {
 
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [cooldown, setCooldown] = useState(120); // starts at 120 — OTP already sent (2-minute window)
+  const [cooldown, setCooldown] = useState(60); // starts at 60 — OTP already sent
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -48,9 +48,9 @@ function AdminOtpPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticket }),
       });
-      const data = await res.json() as { ok?: boolean; devOtp?: string; expiresInSeconds?: number; error?: string };
+      const data = await res.json() as { ok?: boolean; devOtp?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to resend");
-      setCooldown(data.expiresInSeconds ?? 120);
+      setCooldown(60);
       if (data.devOtp) {
         toast.success(
           (lang === "bn" ? "কোড পাঠানো হয়েছে। ডেমো OTP: " : "Code sent. Demo OTP: ") + data.devOtp,

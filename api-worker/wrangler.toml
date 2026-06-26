@@ -3,31 +3,6 @@ main = "src/index.ts"
 compatibility_date = "2026-06-21"
 compatibility_flags = ["nodejs_compat"]
 
-# ───────────────────────────────────────────────────────────────────────────
-# Secrets (set with `wrangler secret put <NAME>`, NEVER committed here):
-#
-#   JWT_SECRET            — required. >=32 random chars. `openssl rand -hex 32`
-#   ADMIN_EMAIL            — the one account treated as Admin. Server-side
-#                            only; the client can never set/influence this.
-#                            (Alias: SUPER_ADMIN_EMAIL — either name works,
-#                            ADMIN_EMAIL takes precedence if both are set.)
-#   ADMIN_SECRET_KEY       — required to complete admin registration/login.
-#                            >=16 chars, compared in constant time.
-#                            (Alias: SUPER_ADMIN_SECRET_KEY.)
-#   BREVO_API_KEY          — Brevo (Sendinblue) transactional email API key.
-#                            Omitted in local dev — OTPs are logged to the
-#                            console instead of emailed.
-#   SENDER_EMAIL           — "Name <email>" the OTP emails are sent from.
-#                            (Alias: BREVO_FROM_EMAIL.)
-#   INTERNAL_BROADCAST_SECRET — only needed if ADMIN_HUB (Durable Objects)
-#                            is bound below.
-#
-# Set SUPER_ADMIN_ENABLED = "true" in [vars] below ONLY long enough to run
-# the one-time admin bootstrap (POST /api/auth/register with
-# email === ADMIN_EMAIL + the correct ADMIN_SECRET_KEY), then set it back
-# to "false". Leaving it "true" in production is flagged at startup.
-# ───────────────────────────────────────────────────────────────────────────
-
 # ───── D1 (SQLite) — available on free plan ─────
 [[d1_databases]]
 binding = "DB"

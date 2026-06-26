@@ -4,11 +4,7 @@
  * Mounts:
  *   GET  /api/healthz
  *   GET  /api/health/admin           GET /api/health/admin/last
- *   POST /api/auth/*                 (register/login/logout/me/...
- *                                      includes /admin/verify-otp and
- *                                      /admin/verify-secret as spec-named
- *                                      aliases of /admin-login/verify-otp
- *                                      and /admin-login/verify-secret)
+ *   POST /api/auth/*                 (register/login/logout/me/...)
  *   *    /api/admin/*                (admin core + admin-management)
  *   *    /api/support/*
  *   *    /api/uploads/*

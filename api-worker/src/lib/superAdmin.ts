@@ -4,24 +4,25 @@ import { getDb, usersTable, systemSettingsTable } from "../db";
 import { generateId, sha256Hex, timingSafeEqualHex } from "./ids";
 
 /**
- * One-time Admin (Super Admin) bootstrap — security-critical.
+ * One-time Super Admin bootstrap — security-critical, identical contract
+ * to the Express server (`artifacts/api-server/src/lib/superAdmin.ts`).
  *
  * Eligibility AND of:
  *   1. SUPER_ADMIN_ENABLED=true
- *   2. ADMIN_EMAIL (alias: SUPER_ADMIN_EMAIL) matches the registering email
- *   3. ADMIN_SECRET_KEY (alias: SUPER_ADMIN_SECRET_KEY) set (>=16 chars) and
- *      provided secret matches via timing-safe SHA-256 compare
- *   4. Email verified (i.e. the register-type OTP was confirmed)
- *   5. No admin already exists
+ *   2. SUPER_ADMIN_EMAIL matches the registering email
+ *   3. SUPER_ADMIN_SECRET_KEY set (>=16 chars) and provided secret matches
+ *      via timing-safe SHA-256 compare
+ *   4. Email verified
+ *   5. No Super Admin already exists
  *   6. system_settings.setup_completed is false
  */
 export function configuredSuperAdminEmail(env: Env): string | null {
-  const v = env.ADMIN_EMAIL ?? env.SUPER_ADMIN_EMAIL;
+  const v = env.SUPER_ADMIN_EMAIL;
   return v ? v.toLowerCase().trim() : null;
 }
 
 export function configuredSuperAdminSecret(env: Env): string | null {
-  const v = env.ADMIN_SECRET_KEY ?? env.SUPER_ADMIN_SECRET_KEY;
+  const v = env.SUPER_ADMIN_SECRET_KEY;
   if (!v) return null;
   const t = v.trim();
   if (t.length < 16) return null;

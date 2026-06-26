@@ -27,6 +27,8 @@ export interface Env {
   APP_URL: string;
   SUPER_ADMIN_ENABLED: string;
   BREVO_FROM_EMAIL: string;
+  /** Alias accepted per the auth spec (SENDER_EMAIL → BREVO_FROM_EMAIL fallback) */
+  SENDER_EMAIL?: string;
   IMAGE_CDN_BASE: string;
   NODE_ENV: string;
 
@@ -34,13 +36,6 @@ export interface Env {
   JWT_SECRET?: string;
   SESSION_SECRET?: string;
   BREVO_API_KEY?: string;
-  // SENDER_EMAIL is the spec-named alias for BREVO_FROM_EMAIL — either works.
-  SENDER_EMAIL?: string;
-  // ADMIN_EMAIL / ADMIN_SECRET_KEY are the spec-named admin credentials.
-  // SUPER_ADMIN_EMAIL / SUPER_ADMIN_SECRET_KEY are kept as backward-compatible
-  // aliases so an already-deployed Worker does not need its secrets renamed.
-  ADMIN_EMAIL?: string;
-  ADMIN_SECRET_KEY?: string;
   SUPER_ADMIN_EMAIL?: string;
   SUPER_ADMIN_SECRET_KEY?: string;
   INTERNAL_BROADCAST_SECRET?: string;
