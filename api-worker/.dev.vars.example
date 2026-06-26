@@ -10,9 +10,18 @@ JWT_SECRET=replace-with-a-long-random-dev-only-string-min-32-chars
 # `wrangler dev` console instead of actually being sent.
 BREVO_API_KEY=
 
-# Optional — only needed to test the Super Admin bootstrap flow locally.
-SUPER_ADMIN_EMAIL=
-SUPER_ADMIN_SECRET_KEY=
+# Optional — "Name <email>" the OTP emails are sent from.
+# (Alias: BREVO_FROM_EMAIL — either name works, SENDER_EMAIL wins if both set.)
+SENDER_EMAIL=
+
+# Optional — only needed to test the one-time Admin bootstrap flow locally.
+# ADMIN_EMAIL is the single account treated as Admin (server-side only —
+# the client can never set/influence this). ADMIN_SECRET_KEY must be set
+# and matched (constant-time compare) to complete admin registration/login.
+# (Aliases: SUPER_ADMIN_EMAIL / SUPER_ADMIN_SECRET_KEY — either name works,
+# ADMIN_EMAIL / ADMIN_SECRET_KEY win if both are set.)
+ADMIN_EMAIL=
+ADMIN_SECRET_KEY=
 
 # Required only if you've uncommented the ADMIN_HUB Durable Object binding
 # in wrangler.toml (Workers Paid plan).

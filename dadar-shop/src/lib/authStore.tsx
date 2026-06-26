@@ -80,6 +80,12 @@ interface AuthApi extends AuthState {
   }) => Promise<AuthUser>;
   logout: () => void;
   requestOtp: (channel: "email", target: string) => Promise<string>;
+  /** Seconds until the OTP issued by the most recent requestOtp /
+   *  sendVerificationEmail / forgotPassword call expires — read this right
+   *  after calling one of those to drive an accurate resend-cooldown timer
+   *  instead of a hardcoded value. Defaults to 120 (the server's current
+   *  OTP lifetime) until the first request completes. */
+  otpCooldownSeconds: number;
   verifyOtp: (target: string, code: string) => Promise<LoginResult>;
   verifyEmail: (code: string) => Promise<void>;
   sendVerificationEmail: () => Promise<string>;
@@ -292,6 +298,7 @@ const T: Record<Lang, Record<TranslationKey, string>> = {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(120);
   const [lang, setLangState] = useState<Lang>("en");
   const [loading, setLoading] = useState(true);
 
@@ -406,10 +413,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [getToken]);
 
   const requestOtp: AuthApi["requestOtp"] = async (channel, target) => {
-    const data = await apiCall<{ ok: boolean; devOtp?: string }>("/send-otp", {
+    const data = await apiCall<{ ok: boolean; devOtp?: string; expiresInSeconds?: number; cooldownSeconds?: number }>("/send-otp", {
       method: "POST",
       body: JSON.stringify({ channel, target, type: "otp_login" }),
     });
+    setOtpCooldownSeconds(data.expiresInSeconds ?? data.cooldownSeconds ?? 120);
     // In dev mode (no Brevo key) backend logs & returns OTP for easy testing
     return data.devOtp ?? "";
   };
@@ -456,10 +464,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sendVerificationEmail: AuthApi["sendVerificationEmail"] = async () => {
     const token = getToken();
-    const data = await apiCall<{ ok: boolean; devOtp?: string }>(
+    const data = await apiCall<{ ok: boolean; devOtp?: string; expiresInSeconds?: number; cooldownSeconds?: number }>(
       "/send-verification-email",
       { method: "POST", token },
     );
+    setOtpCooldownSeconds(data.expiresInSeconds ?? data.cooldownSeconds ?? 120);
     // devOtp is only present in non-production environments. In production
     // the OTP is delivered by email only; we return "" here so the UI shows
     // a clean "check your inbox" message instead of a blank demo hint.
@@ -467,10 +476,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const forgotPassword: AuthApi["forgotPassword"] = async (email) => {
-    const data = await apiCall<{ ok: boolean; devToken?: string }>("/forgot-password", {
+    const data = await apiCall<{ ok: boolean; devToken?: string; expiresInSeconds?: number }>("/forgot-password", {
       method: "POST",
       body: JSON.stringify({ email }),
     });
+    if (data.expiresInSeconds) setOtpCooldownSeconds(data.expiresInSeconds);
     // devToken is only present in non-production environments (the backend
     // omits it in production — see api-worker src/routes/auth.ts). In
     // production the real reset link is delivered by email only; there is
@@ -524,6 +534,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       logout,
       requestOtp,
+      otpCooldownSeconds,
       verifyOtp,
       verifyEmail,
       sendVerificationEmail,
@@ -534,7 +545,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getToken,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, session, lang, loading]
+    [user, session, lang, loading, otpCooldownSeconds]
   );
 
   return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>;

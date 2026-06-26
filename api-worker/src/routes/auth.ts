@@ -4,37 +4,50 @@
  * Endpoints (all under /api/auth):
  *   POST /register   POST /login    POST /logout    GET  /me
  *   POST /admin-login/verify-otp   POST /admin-login/verify-secret
+ *     (spec-named aliases, same handlers: POST /admin/verify-otp
+ *      and POST /admin/verify-secret)
  *   POST /send-otp   POST /verify-otp
  *   POST /verify-email  POST /send-verification-email
  *   POST /forgot-password  POST /reset-password
  *
- * Super Admin login (the single account whose email matches the
- * SUPER_ADMIN_EMAIL secret) is gated behind 3 sequential steps, all
- * driven from the same /login form on the frontend:
+ * Admin login (the single account whose email matches ADMIN_EMAIL — alias:
+ * SUPER_ADMIN_EMAIL) is gated behind 3 sequential steps, all driven from
+ * the same /login form on the frontend:
  *   1. POST /login              — password (as normal) -> returns a ticket
- *                                  instead of a session, and emails an OTP.
- *   2. POST /admin-login/verify-otp     — email OTP tied to that ticket.
- *   3. POST /admin-login/verify-secret  — SUPER_ADMIN_SECRET_KEY match ->
- *                                  only now is a session actually created.
+ *                                  instead of a session, and emails an OTP
+ *                                  (type = "admin_login").
+ *   2. POST /admin-login/verify-otp  (alias: /admin/verify-otp)
+ *                                — email OTP tied to that ticket. The OTP's
+ *                                  `type` column is checked strictly — an
+ *                                  OTP issued for registration can never be
+ *                                  consumed here, and vice versa.
+ *   3. POST /admin-login/verify-secret  (alias: /admin/verify-secret)
+ *                                — ADMIN_SECRET_KEY (alias:
+ *                                  SUPER_ADMIN_SECRET_KEY) match, compared
+ *                                  in constant time -> only now is a
+ *                                  session actually created.
  * Regular users never see these extra steps; /login returns a normal
- * session for them exactly as before.
+ * session for them exactly as before. Admin detection is ALWAYS
+ * server-side (email === ADMIN_EMAIL) — the client never supplies or
+ * influences a role/isAdmin flag.
  */
-import { Hono } from "hono";
+import { Hono, type Handler } from "hono";
 import { z } from "zod";
-import { and, eq, gt } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Env, Variables } from "../env";
 import {
   getDb,
   usersTable,
-  otpCodesTable,
   notificationsTable,
   rewardLedgerTable,
   type User,
 } from "../db";
-import { generateId, generateOtp, b64urlEncode, b64urlDecode } from "../lib/ids";
+import { generateId, b64urlEncode, b64urlDecode } from "../lib/ids";
 import { hashPassword, verifyPassword } from "../lib/hash";
 import { createSession, destroySession, revokeAllForUser } from "../lib/session";
 import { sendOtpEmail } from "../lib/email";
+import { issueOtp, consumeOtp, OtpCooldownError, otpExpirySeconds } from "../lib/otpService";
+import { rateLimit } from "../lib/rateLimit";
 import {
   configuredSuperAdminEmail,
   configuredSuperAdminSecret,
@@ -52,11 +65,27 @@ import { requireAuth } from "../middleware/auth";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const OTP_COOLDOWN_MS = 60 * 1000;
-const OTP_EXPIRY_MS = 10 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCK_MS = 15 * 60 * 1000;
 const ADMIN_LOGIN_TICKET_TTL_MS = 5 * 60 * 1000; // 5 minutes to complete OTP + secret steps
+
+// ─── IP-based OTP abuse limits ─────
+// Per-target cooldown (lib/otpService.ts) stops one email from being
+// spammed, but a single IP could still cycle through many different email
+// addresses. These caps bound that — independent of, and in addition to,
+// the per-target cooldown.
+const OTP_SEND_IP_LIMIT = 10; // OTP sends per IP
+const OTP_SEND_IP_WINDOW_MS = 15 * 60 * 1000; // per 15 minutes
+const OTP_VERIFY_IP_LIMIT = 20; // OTP verify attempts per IP (brute-force guard)
+const OTP_VERIFY_IP_WINDOW_MS = 15 * 60 * 1000;
+
+async function checkOtpSendRateLimit(env: Env, ip: string): Promise<boolean> {
+  return rateLimit(env, `otp-send:${ip}`, OTP_SEND_IP_LIMIT, OTP_SEND_IP_WINDOW_MS);
+}
+
+async function checkOtpVerifyRateLimit(env: Env, ip: string): Promise<boolean> {
+  return rateLimit(env, `otp-verify:${ip}`, OTP_VERIFY_IP_LIMIT, OTP_VERIFY_IP_WINDOW_MS);
+}
 
 function isDev(env: Env): boolean {
   return !env.BREVO_API_KEY;
@@ -167,81 +196,10 @@ function isConfiguredSuperAdmin(env: Env, user: { email: string; isSuperAdmin: b
   return user.isSuperAdmin;
 }
 
-// ─── OTP helpers ─────
-async function getOrCreateOtp(
-  env: Env,
-  target: string,
-  type: "email_verify" | "otp_login" | "forgot_password" | "admin_login",
-): Promise<{ otp: string; cooldownRemaining: number }> {
-  const db = getDb(env);
-  const recent = await db
-    .select()
-    .from(otpCodesTable)
-    .where(
-      and(
-        eq(otpCodesTable.target, target.toLowerCase()),
-        eq(otpCodesTable.type, type),
-        gt(otpCodesTable.createdAt, new Date(Date.now() - OTP_COOLDOWN_MS)),
-      ),
-    )
-    .limit(1);
-
-  if (recent.length > 0) {
-    const ts = recent[0]!.createdAt as unknown as Date;
-    const elapsed = Date.now() - (ts instanceof Date ? ts.getTime() : Number(ts));
-    const remaining = Math.ceil((OTP_COOLDOWN_MS - elapsed) / 1000);
-    const err = new Error("Please wait before requesting another code.") as Error & {
-      status: number;
-      cooldownRemaining: number;
-    };
-    err.status = 429;
-    err.cooldownRemaining = remaining;
-    throw err;
-  }
-
-  await db
-    .delete(otpCodesTable)
-    .where(and(eq(otpCodesTable.target, target.toLowerCase()), eq(otpCodesTable.type, type)));
-
-  const otp = generateOtp();
-  await db.insert(otpCodesTable).values({
-    id: generateId(),
-    target: target.toLowerCase(),
-    code: otp,
-    type,
-    used: false,
-    expiresAt: new Date(Date.now() + OTP_EXPIRY_MS),
-  });
-
-  return { otp, cooldownRemaining: 0 };
-}
-
-async function consumeOtp(
-  env: Env,
-  target: string,
-  code: string,
-  type: "email_verify" | "otp_login" | "forgot_password" | "admin_login",
-): Promise<boolean> {
-  const db = getDb(env);
-  const rows = await db
-    .select()
-    .from(otpCodesTable)
-    .where(
-      and(
-        eq(otpCodesTable.target, target.toLowerCase()),
-        eq(otpCodesTable.type, type),
-        eq(otpCodesTable.used, false),
-        gt(otpCodesTable.expiresAt, new Date()),
-      ),
-    )
-    .limit(1);
-
-  const record = rows[0];
-  if (!record || record.code !== code) return false;
-
-  await db.update(otpCodesTable).set({ used: true }).where(eq(otpCodesTable.id, record.id));
-  return true;
-}
+// OTP issuance/verification now lives in lib/otpService.ts (issueOtp /
+// consumeOtp) — shared by every flow below so there is exactly one
+// implementation of "generate, cooldown-check, expire, single-use,
+// type-bound" logic in the whole codebase.
 
 // ───────────────────────────────  /register  ──────────────────────────────────
 const registerSchema = z.object({
@@ -262,6 +220,11 @@ app.post("/register", async (c) => {
   const { name, email, phone, password, secretKey } = parsed.data;
   const ip = clientIp(c);
   const userAgent = c.req.header("user-agent") ?? null;
+
+  if (!(await checkOtpSendRateLimit(c.env, ip))) {
+    return c.json({ error: "Too many requests. Please try again later." }, 429);
+  }
+
   const db = getDb(c.env);
 
   const existing = await db
@@ -391,8 +354,8 @@ app.post("/register", async (c) => {
   }
 
   try {
-    const { otp } = await getOrCreateOtp(c.env, email.toLowerCase(), "email_verify");
-    await sendOtpEmail(c.env, { to: email, otp, purpose: "Email Verification", name });
+    const { otp, expiresInSeconds } = await issueOtp(c.env, email.toLowerCase(), "register");
+    await sendOtpEmail(c.env, { to: email, otp, purpose: "Email Verification", name, expiresInSeconds });
   } catch {
     // OTP send failure does not block registration
   }
@@ -470,6 +433,10 @@ app.post("/login", async (c) => {
   // ── Super Admin gate: password alone is not enough. Issue a short-lived
   // ticket and require email OTP + secret key before any session exists. ──
   if (isConfiguredSuperAdmin(c.env, { email: user.email, isSuperAdmin: user.isSuperAdmin })) {
+    if (!(await checkOtpSendRateLimit(c.env, clientIp(c)))) {
+      return c.json({ error: "Too many requests. Please try again later." }, 429);
+    }
+
     const ticket = await issueAdminLoginTicket(c.env, {
       userId: user.id,
       email: user.email,
@@ -477,19 +444,22 @@ app.post("/login", async (c) => {
     });
 
     let devOtp: string | undefined;
+    let otpExpiresIn = otpExpirySeconds("admin_login");
     try {
-      const { otp } = await getOrCreateOtp(c.env, user.email.toLowerCase(), "admin_login");
+      const { otp, expiresInSeconds } = await issueOtp(c.env, user.email.toLowerCase(), "admin_login");
       devOtp = otp;
+      otpExpiresIn = expiresInSeconds;
       await sendOtpEmail(c.env, {
         to: user.email,
         otp,
-        purpose: "Login Verification",
+        purpose: "Admin Sign-in Verification",
         name: user.name,
+        expiresInSeconds,
       });
-    } catch (err: any) {
-      // Cooldown (429) means a code was already sent very recently —
+    } catch (err) {
+      // Cooldown means a code was already sent very recently —
       // that's fine, the admin can still use that code.
-      if (err?.status !== 429) {
+      if (!(err instanceof OtpCooldownError)) {
         return c.json({ error: "Failed to send verification code. Please try again." }, 500);
       }
     }
@@ -506,6 +476,7 @@ app.post("/login", async (c) => {
       requiresAdminVerification: true,
       stage: "otp",
       ticket,
+      otpExpiresIn,
       // devOtp is only present in local dev (no BREVO_API_KEY) so the
       // real OTP code only ever reaches the admin via email in production.
       ...(isDev(c.env) && devOtp && { devOtp }),
@@ -530,6 +501,48 @@ app.post("/login", async (c) => {
   return c.json({ token, expiresAt: expiresAt.getTime(), user: safeUser(fresh) });
 });
 
+
+// ─────────────────────  /admin-login/resend-otp  ────────────────────────────
+// Resends the admin login OTP for an existing ticket (stage: password_ok).
+// Does NOT advance the ticket stage — just sends a fresh OTP code.
+const adminLoginResendSchema = z.object({
+  ticket: z.string().min(1),
+});
+
+app.post("/admin-login/resend-otp", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = adminLoginResendSchema.safeParse(body);
+  if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+  if (!(await checkOtpSendRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many requests. Please try again later." }, 429);
+  }
+
+  const { ticket: ticketId } = parsed.data;
+  const ticket = await readAdminLoginTicket(c.env, ticketId);
+  if (!ticket || ticket.stage !== "password_ok") {
+    return c.json({ error: "Verification session expired. Please sign in again." }, 400);
+  }
+
+  try {
+    const { otp, expiresInSeconds } = await issueOtp(c.env, ticket.email.toLowerCase(), "admin_login");
+    await sendOtpEmail(c.env, {
+      to: ticket.email,
+      otp,
+      purpose: "Admin Sign-in Verification",
+      name: "",
+      expiresInSeconds,
+    });
+    const expose = c.env.NODE_ENV !== "production";
+    return c.json({ ok: true, expiresInSeconds, ...(expose && { devOtp: otp }) });
+  } catch (err) {
+    if (err instanceof OtpCooldownError) {
+      return c.json({ error: err.message, cooldownRemaining: err.cooldownRemaining }, 429);
+    }
+    return c.json({ error: "Failed to send code." }, 500);
+  }
+});
+
 // ─────────────────────  /admin-login/verify-otp  ───────────────────────────
 // Step 2 of the Super Admin login: consumes the emailed OTP tied to the
 // ticket from /login. On success, advances the ticket so step 3 (secret
@@ -539,10 +552,14 @@ const adminLoginVerifyOtpSchema = z.object({
   code: z.string().length(6),
 });
 
-app.post("/admin-login/verify-otp", async (c) => {
+const adminLoginVerifyOtpHandler: Handler<{ Bindings: Env; Variables: Variables }> = async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = adminLoginVerifyOtpSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+  if (!(await checkOtpVerifyRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many attempts. Please try again later." }, 429);
+  }
 
   const { ticket: ticketId, code } = parsed.data;
   const ticket = await readAdminLoginTicket(c.env, ticketId);
@@ -556,7 +573,13 @@ app.post("/admin-login/verify-otp", async (c) => {
   await advanceAdminLoginTicket(c.env, ticketId, { ...ticket, stage: "otp_ok" });
 
   return c.json({ stage: "secret" });
-});
+};
+
+// Registered under BOTH the original path (used by the live frontend —
+// never renamed) and the spec-mandated `/admin/verify-otp` path. Same
+// handler reference — there is exactly one implementation, just two URLs.
+app.post("/admin-login/verify-otp", adminLoginVerifyOtpHandler);
+app.post("/admin/verify-otp", adminLoginVerifyOtpHandler);
 
 // ───────────────────  /admin-login/verify-secret  ──────────────────────────
 // Step 3 of the Super Admin login: checks the secret key against
@@ -567,10 +590,14 @@ const adminLoginVerifySecretSchema = z.object({
   secretKey: z.string().min(1),
 });
 
-app.post("/admin-login/verify-secret", async (c) => {
+const adminLoginVerifySecretHandler: Handler<{ Bindings: Env; Variables: Variables }> = async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = adminLoginVerifySecretSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+  if (!(await checkOtpVerifyRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many attempts. Please try again later." }, 429);
+  }
 
   const { ticket: ticketId, secretKey } = parsed.data;
   const ticket = await readAdminLoginTicket(c.env, ticketId);
@@ -621,7 +648,11 @@ app.post("/admin-login/verify-secret", async (c) => {
 
   const { token, expiresAt } = await createSession(c.env, fresh.id, fresh.role, ticket.remember);
   return c.json({ token, expiresAt: expiresAt.getTime(), user: safeUser(fresh) });
-});
+};
+
+// Same dual-registration as verify-otp above — one handler, two URLs.
+app.post("/admin-login/verify-secret", adminLoginVerifySecretHandler);
+app.post("/admin/verify-secret", adminLoginVerifySecretHandler);
 
 // ───────────────────────────────  /lock-info  ──────────────────────────────────
 // Lets the frontend show "N attempts left" / lockout countdown before the
@@ -702,7 +733,7 @@ const sendOtpSchema = z.object({
   channel: z.enum(["email"]),
   target: z.string().min(3),
   type: z
-    .enum(["email_verify", "otp_login", "forgot_password"])
+    .enum(["register", "email_verify", "otp_login", "forgot_password", "admin_login"])
     .optional()
     .default("otp_login"),
 });
@@ -712,12 +743,18 @@ app.post("/send-otp", async (c) => {
   const parsed = sendOtpSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
 
+  if (!(await checkOtpSendRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many requests. Please try again later." }, 429);
+  }
+
   const { target, type } = parsed.data;
 
   const purposeMap: Record<string, string> = {
+    register: "Email Verification",
     email_verify: "Email Verification",
     otp_login: "Sign In",
     forgot_password: "Password Reset",
+    admin_login: "Admin Sign-in Verification",
   };
 
   try {
@@ -729,21 +766,23 @@ app.post("/send-otp", async (c) => {
       .limit(1);
     const name = users[0]?.name;
 
-    const { otp } = await getOrCreateOtp(c.env, target.toLowerCase(), type);
+    const { otp, expiresInSeconds } = await issueOtp(c.env, target.toLowerCase(), type);
     await sendOtpEmail(c.env, {
       to: target,
       otp,
       purpose: purposeMap[type] ?? "Verification",
       name,
+      expiresInSeconds,
     });
 
     return c.json({
       ok: true,
-      cooldownSeconds: 60,
+      cooldownSeconds: expiresInSeconds,
+      expiresInSeconds,
       ...(isDev(c.env) && { devOtp: otp }),
     });
-  } catch (err: any) {
-    if (err?.status === 429) {
+  } catch (err) {
+    if (err instanceof OtpCooldownError) {
       return c.json({ error: err.message, cooldownRemaining: err.cooldownRemaining }, 429);
     }
     return c.json({ error: "Failed to send OTP. Please try again." }, 500);
@@ -755,7 +794,7 @@ const verifyOtpSchema = z.object({
   target: z.string().min(3),
   code: z.string().length(6),
   type: z
-    .enum(["email_verify", "otp_login", "forgot_password"])
+    .enum(["register", "email_verify", "otp_login", "forgot_password", "admin_login"])
     .optional()
     .default("otp_login"),
 });
@@ -764,6 +803,10 @@ app.post("/verify-otp", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = verifyOtpSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+  if (!(await checkOtpVerifyRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many attempts. Please try again later." }, 429);
+  }
 
   const { target, code, type } = parsed.data;
   const valid = await consumeOtp(c.env, target, code, type);
@@ -826,6 +869,10 @@ app.post("/verify-email", requireAuth(), async (c) => {
   const schema = z.object({ code: z.string().length(6) });
   const parsed = schema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+  if (!(await checkOtpVerifyRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many attempts. Please try again later." }, 429);
+  }
 
   const valid = await consumeOtp(c.env, user.email, parsed.data.code, "email_verify");
   if (!valid) return c.json({ error: "Invalid or expired code." }, 400);
@@ -890,18 +937,22 @@ app.post("/verify-email", requireAuth(), async (c) => {
 // ───────────────────────  /send-verification-email  ───────────────────────────
 app.post("/send-verification-email", requireAuth(), async (c) => {
   const user = c.get("user")!;
+  if (!(await checkOtpSendRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many requests. Please try again later." }, 429);
+  }
   try {
-    const { otp } = await getOrCreateOtp(c.env, user.email, "email_verify");
+    const { otp, expiresInSeconds } = await issueOtp(c.env, user.email, "register");
     await sendOtpEmail(c.env, {
       to: user.email,
       otp,
       purpose: "Email Verification",
       name: user.name,
+      expiresInSeconds,
     });
     const expose = c.env.NODE_ENV !== "production";
-    return c.json({ ok: true, cooldownSeconds: 60, ...(expose && { devOtp: otp }) });
-  } catch (err: any) {
-    if (err?.status === 429) {
+    return c.json({ ok: true, cooldownSeconds: expiresInSeconds, expiresInSeconds, ...(expose && { devOtp: otp }) });
+  } catch (err) {
+    if (err instanceof OtpCooldownError) {
       return c.json({ error: err.message, cooldownRemaining: err.cooldownRemaining }, 429);
     }
     return c.json({ error: "Failed to send email." }, 500);
@@ -916,6 +967,12 @@ app.post("/forgot-password", async (c) => {
   const parsed = forgotPasswordSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid email" }, 400);
 
+  if (!(await checkOtpSendRateLimit(c.env, clientIp(c)))) {
+    // Same generic shape as success — never reveal rate-limit state to an
+    // anonymous caller any more than account existence is revealed below.
+    return c.json({ ok: true });
+  }
+
   const { email } = parsed.data;
   let devToken: string | undefined;
 
@@ -928,7 +985,7 @@ app.post("/forgot-password", async (c) => {
       .limit(1);
 
     if (users.length) {
-      const { otp } = await getOrCreateOtp(c.env, email.toLowerCase(), "forgot_password");
+      const { otp, expiresInSeconds } = await issueOtp(c.env, email.toLowerCase(), "forgot_password");
       const rawToken = b64urlEncode(`${email.toLowerCase()}:${otp}`);
       devToken = rawToken;
       await sendOtpEmail(c.env, {
@@ -937,6 +994,7 @@ app.post("/forgot-password", async (c) => {
         purpose: "Password Reset",
         name: users[0]!.name,
         resetToken: rawToken,
+        expiresInSeconds,
       });
     } else {
       devToken = b64urlEncode(`${email.toLowerCase()}:000000`);
@@ -959,6 +1017,10 @@ app.post("/reset-password", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = resetPasswordSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: "Invalid input" }, 400);
+
+  if (!(await checkOtpVerifyRateLimit(c.env, clientIp(c)))) {
+    return c.json({ error: "Too many attempts. Please try again later." }, 429);
+  }
 
   const { resetToken, newPassword } = parsed.data;
 

@@ -84,24 +84,15 @@ function AnimatedOutlet() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-
-    if (document.startViewTransition) {
-      // Named view-transition on the page-wrap element — doesn't
-      // interfere with the root-level theme-reveal animation.
-      document.startViewTransition(() => {
-        // The DOM already updated (TanStack Router handles that),
-        // so this is effectively a no-op that just captures the snapshot.
-      });
-    } else {
-      // CSS fallback: fade + slide up for older browsers.
-      el.classList.remove("page-enter");
-      void el.offsetWidth; // force reflow to restart animation
-      el.classList.add("page-enter");
-    }
+    // Pure CSS animation — no startViewTransition so it never
+    // interferes with the theme-reveal view-transition on root.
+    el.classList.remove("page-enter");
+    void el.offsetWidth; // force reflow to restart animation
+    el.classList.add("page-enter");
   }, [location.pathname]);
 
   return (
-    <div ref={ref} className="page-wrap" style={{ minHeight: "100dvh" }}>
+    <div ref={ref} style={{ minHeight: "100dvh" }}>
       <Outlet />
     </div>
   );
