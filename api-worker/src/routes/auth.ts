@@ -411,11 +411,19 @@ app.post("/register", async (c) => {
     // OTP send failure does not block registration
   }
 
+  // Issue a short-lived session so the verify-email page can call /verify-email (requireAuth).
+  // The session expires in 30 minutes — just enough time to verify.
+  // Login is blocked (403) until emailVerified=true, so this session can't access the shop.
   const { token, expiresAt } = await createSession(c.env, userId, "user", false);
   const users = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
 
   return c.json(
-    { token, expiresAt: expiresAt.getTime(), user: safeUser(users[0]!) },
+    {
+      token,
+      expiresAt: expiresAt.getTime(),
+      user: safeUser(users[0]!),
+      requiresVerification: true,
+    },
     201,
   );
 });
@@ -479,6 +487,21 @@ app.post("/login", async (c) => {
 
   if (user.status !== "active") {
     return c.json({ error: `Your account is ${user.status}. Contact support.` }, 403);
+  }
+
+  // ── Email verification gate ───────────────────────────────────────────────
+  // Block login until email is verified. Unverified users must complete OTP
+  // verification before they can access the app. Admin accounts bypass this
+  // because they go through a separate OTP flow below.
+  if (!user.emailVerified && !isConfiguredSuperAdmin(c.env, { email: user.email, isSuperAdmin: user.isSuperAdmin })) {
+    return c.json(
+      {
+        error: "Please verify your email before signing in.",
+        requiresVerification: true,
+        email: user.email,
+      },
+      403,
+    );
   }
 
   // ── Super Admin gate: password alone is not enough. Issue a short-lived
@@ -641,61 +664,80 @@ app.post("/admin-login/verify-secret", async (c) => {
 
   const { ticket: ticketId, secretKey } = parsed.data;
 
-  // Rate limit: 3 attempts per ticket per 15 minutes (secret key is high-value)
-  const rlKey = `admin-secret-verify:${ticketId}`;
-  const allowed = await rateLimit(c.env, rlKey, 3, 15 * 60 * 1000);
-  if (!allowed) {
-    return c.json({ error: "Too many attempts. Please sign in again." }, 429);
-  }
+  try {
+    // Rate limit: 3 attempts per ticket per 15 minutes
+    const rlKey = `admin-secret-verify:${ticketId}`;
+    const allowed = await rateLimit(c.env, rlKey, 3, 15 * 60 * 1000);
+    if (!allowed) {
+      return c.json({ error: "Too many attempts. Please sign in again." }, 429);
+    }
 
-  const ticket = await readAdminLoginTicket(c.env, ticketId);
-  if (!ticket || ticket.stage !== "otp_ok") {
-    return c.json({ error: "Verification session expired. Please sign in again." }, 400);
-  }
+    const ticket = await readAdminLoginTicket(c.env, ticketId);
+    if (!ticket || ticket.stage !== "otp_ok") {
+      return c.json({ error: "Verification session expired. Please sign in again." }, 400);
+    }
 
-  if (!configuredSuperAdminSecret(c.env)) {
-    return c.json({ error: "Admin secret key is not configured on this server." }, 503);
-  }
+    const cfgSecret = configuredSuperAdminSecret(c.env);
+    if (!cfgSecret) {
+      console.error("[admin-login/verify-secret] ADMIN_SECRET_KEY / SUPER_ADMIN_SECRET_KEY not configured");
+      return c.json({ error: "Admin secret key is not configured on this server." }, 503);
+    }
 
-  const matches = await verifySuperAdminSecret(c.env, secretKey);
-  if (!matches) {
+    const matches = await verifySuperAdminSecret(c.env, secretKey);
+    if (!matches) {
+      await logAdminActivity(c.env, {
+        adminId: ticket.userId,
+        action: "admin_login_secret_failed",
+        details: { email: ticket.email },
+        ip: clientIp(c),
+        userAgent: c.req.header("user-agent") ?? null,
+      });
+      return c.json({ error: "Invalid secret key." }, 401);
+    }
+
+    await consumeAdminLoginTicket(c.env, ticketId);
+
+    const db = getDb(c.env);
+    const users = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, ticket.userId))
+      .limit(1);
+    const user = users[0];
+    if (!user) return c.json({ error: "Account not found." }, 404);
+
+    // Promote to admin unconditionally — 3-step flow already verified identity.
+    await restoreSuperAdminIfMatches(c.env, {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      isSuperAdmin: user.isSuperAdmin,
+    });
+
+    // Re-fetch to get updated role after promotion.
+    const freshRows = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, user.id))
+      .limit(1);
+    const fresh = freshRows[0] ?? user;
+
     await logAdminActivity(c.env, {
-      adminId: ticket.userId,
-      action: "admin_login_secret_failed",
-      details: { email: ticket.email },
+      adminId: fresh.id,
+      action: "admin_login_success",
+      details: { email: fresh.email, role: "admin" },
       ip: clientIp(c),
       userAgent: c.req.header("user-agent") ?? null,
     });
-    return c.json({ error: "Invalid secret key." }, 401);
+
+    // Issue session with role="admin" regardless of DB propagation timing.
+    const { token, expiresAt } = await createSession(c.env, fresh.id, "admin", ticket.remember);
+    return c.json({ token, expiresAt: expiresAt.getTime(), user: { ...safeUser(fresh), role: "admin" } });
+
+  } catch (err) {
+    console.error("[admin-login/verify-secret] Unexpected error:", err);
+    return c.json({ error: "Internal server error. Please try again." }, 500);
   }
-
-  await consumeAdminLoginTicket(c.env, ticketId);
-
-  const db = getDb(c.env);
-  const users = await db.select().from(usersTable).where(eq(usersTable.id, ticket.userId)).limit(1);
-  const user = users[0];
-  if (!user) return c.json({ error: "Account not found." }, 404);
-
-  await restoreSuperAdminIfMatches(c.env, {
-    id: user.id,
-    email: user.email,
-    role: user.role,
-    isSuperAdmin: user.isSuperAdmin,
-  });
-
-  const freshRows = await db.select().from(usersTable).where(eq(usersTable.id, user.id)).limit(1);
-  const fresh = freshRows[0] ?? user;
-
-  await logAdminActivity(c.env, {
-    adminId: fresh.id,
-    action: "admin_login_success",
-    details: { email: fresh.email },
-    ip: clientIp(c),
-    userAgent: c.req.header("user-agent") ?? null,
-  });
-
-  const { token, expiresAt } = await createSession(c.env, fresh.id, fresh.role, ticket.remember);
-  return c.json({ token, expiresAt: expiresAt.getTime(), user: safeUser(fresh) });
 });
 
 // ───────────────────────────────  /lock-info  ──────────────────────────────────

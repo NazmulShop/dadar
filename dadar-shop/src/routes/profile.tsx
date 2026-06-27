@@ -47,25 +47,30 @@ function ProfilePage() {
     <div className="bg-background min-h-screen pb-40">
       <StickyHeader />
       <div className="mx-auto w-full max-w-[720px] px-4 pt-2">
-        <section className="surface-card mb-4 flex items-center gap-3 rounded-3xl p-4">
-          <div className="bg-primary-soft text-primary flex size-14 items-center justify-center rounded-full">
-            <User className="size-6" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-display truncate text-lg font-semibold">
-              {isAuthenticated && user ? user.name : "Guest"}
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              {isAuthenticated && user ? user.email : "Sign in to sync your bag, wishlist and orders."}
-            </p>
+        <section className="surface-card mb-4 rounded-3xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-primary-soft text-primary flex size-14 shrink-0 items-center justify-center rounded-full">
+              <User className="size-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-display truncate text-lg font-semibold">
+                {isAuthenticated && user ? user.name : "Guest"}
+              </h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {isAuthenticated && user ? user.email : "Sign in to sync your bag, wishlist and orders."}
+              </p>
+            </div>
           </div>
           {isAuthenticated ? (
-            <Button size="sm" variant="outline" onClick={handleLogout}>
+            <button
+              onClick={handleLogout}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-2xl border border-border py-2 text-xs font-medium text-muted-foreground transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+            >
               <LogOut className="size-3.5" /> Sign out
-            </Button>
+            </button>
           ) : (
-            <Link to="/auth/login">
-              <Button size="sm" variant="hero">
+            <Link to="/auth/login" className="mt-3 block">
+              <Button size="sm" variant="hero" className="w-full">
                 <LogIn className="size-3.5" /> Sign in
               </Button>
             </Link>

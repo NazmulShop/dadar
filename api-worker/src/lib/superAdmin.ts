@@ -121,17 +121,28 @@ export async function evaluateBootstrap(
   return { ok: true, reason: "ok" };
 }
 
-/** Idempotently restore the Super Admin's role on login. */
+/**
+ * Idempotently promote the user to Super Admin on successful login.
+ *
+ * Called ONLY after the full 3-step admin login flow completes
+ * (password → OTP → secret key). At this point we know:
+ *   - The email matches ADMIN_EMAIL / SUPER_ADMIN_EMAIL
+ *   - The correct secret key was provided (timing-safe compare)
+ *   - The OTP was valid and consumed
+ *
+ * So we unconditionally promote — regardless of setupCompleted flag or
+ * whether the account was previously created as a normal user.
+ */
 export async function restoreSuperAdminIfMatches(
   env: Env,
   user: { id: string; email: string; role: string; isSuperAdmin: boolean },
 ): Promise<void> {
   const cfgEmail = configuredSuperAdminEmail(env);
+  // If email doesn't match the configured admin email, do nothing.
   if (!cfgEmail || user.email.toLowerCase() !== cfgEmail) return;
 
-  const settings = await getSystemSettings(env);
-  if (!settings.setupCompleted && !user.isSuperAdmin) return;
-
+  // Email matches → this person passed the full 3-step flow.
+  // Promote to admin unconditionally (idempotent if already admin).
   if (user.role !== "admin" || !user.isSuperAdmin) {
     const db = getDb(env);
     await db

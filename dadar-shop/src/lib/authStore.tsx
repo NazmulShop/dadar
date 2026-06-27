@@ -41,7 +41,8 @@ export interface AuthUser {
  */
 export type LoginResult =
   | { kind: "session"; user: AuthUser }
-  | { kind: "admin_verification_required"; ticket: string; devOtp?: string };
+  | { kind: "admin_verification_required"; ticket: string; devOtp?: string }
+  | { kind: "requires_verification"; email: string };
 
 interface Session {
   token: string;
@@ -357,6 +358,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { kind: "admin_verification_required", ticket: data.ticket, devOtp: data.devOtp };
     }
 
+    // Email not verified — backend blocked login. Direct user to verify-email.
+    if ((data as any).requiresVerification) {
+      return { kind: "requires_verification", email: (data as any).email ?? "" };
+    }
+
     const sessionData = data as { token: string; expiresAt: number; user: AuthUser };
     persistSession(sessionData.user, sessionData.token, sessionData.expiresAt, remember);
     return { kind: "session", user: sessionData.user };
@@ -383,14 +389,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register: AuthApi["register"] = async ({ name, email, phone, password, secretKey }) => {
-    // secretKey is optional; only included in the request body when the user
-    // supplied one via the Advanced Registration flow. Validated server-side.
     const body: Record<string, unknown> = { name, email, phone, password };
     if (secretKey && secretKey.trim()) body.secretKey = secretKey.trim();
-    const data = await apiCall<{ token: string; expiresAt: number; user: AuthUser }>("/register", {
+    const data = await apiCall<{
+      token: string;
+      expiresAt: number;
+      user: AuthUser;
+      requiresVerification?: boolean;
+    }>("/register", {
       method: "POST",
       body: JSON.stringify(body),
     });
+    // Always persist the session — verify-email page needs it (requireAuth).
+    // Login is blocked server-side until emailVerified=true.
     persistSession(data.user, data.token, data.expiresAt, false);
     return data.user;
   };

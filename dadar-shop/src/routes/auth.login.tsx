@@ -72,6 +72,20 @@ function LoginPage() {
     setBusy(true);
     try {
       const result = await login(email, password, remember);
+      if (result.kind === "requires_verification") {
+        // Email not verified — send user to verify-email page.
+        toast.info(
+          lang === "bn"
+            ? "ইমেইল যাচাই করুন। আপনার ইনবক্স চেক করুন।"
+            : "Please verify your email first. Check your inbox.",
+        );
+        nav({
+          to: "/auth/verify-email",
+          search: { mode: "register" } as never,
+        });
+        return;
+      }
+
       if (result.kind === "admin_verification_required") {
         if (result.devOtp) {
           toast.success(

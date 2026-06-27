@@ -442,10 +442,33 @@ function LiveChatTab() {
 
 interface BotMessage { role: "user" | "bot"; text: string; at: string }
 
+const DADAR_SYSTEM_PROMPT = `You are Dadar AI, the friendly and knowledgeable personal AI assistant for Dadar Shop — a Bangladesh-based e-commerce platform.
+
+Your role is to help customers with:
+- Order tracking and status updates
+- Return and refund policies (7-day return window, full refund on defective items)
+- Payment methods (bKash, Nagad, Rocket, cards, cash on delivery)
+- Delivery timelines (Dhaka: 1-2 days, outside Dhaka: 3-5 days)
+- Product questions and recommendations
+- Account management (profile, addresses, loyalty points)
+- Cancellation requests (can cancel within 1 hour of placing order)
+- Loyalty points (1 point per ৳10 spent, redeem at checkout)
+- Promotions and discount codes
+
+Key policies:
+- Free delivery on orders over ৳999
+- Cash on delivery available for all areas
+- 7-day easy return policy
+- 24/7 AI support, live agents available 8am-10pm
+
+Always respond in the same language the user writes in (Bengali or English).
+Be warm, concise, and helpful. If you cannot resolve an issue, suggest creating a support ticket or contacting a live agent.
+Never make up order details — tell the user to check their orders page for specifics.`;
+
 function ChatbotTab() {
   const [msgs, setMsgs] = useState<BotMessage[]>([{
     role: "bot",
-    text: "👋 Hi! I'm Dadar AI Assistant. I can help with orders, returns, payments, delivery, and more.\n\nWhat can I help you with today?",
+    text: "👋 আমি Dadar AI Assistant! অর্ডার ট্র্যাকিং, রিটার্ন, পেমেন্ট, ডেলিভারি — সব বিষয়ে সাহায্য করতে পারি।\n\nকীভাবে সাহায্য করতে পারি?",
     at: new Date().toISOString(),
   }]);
   const [input, setInput] = useState("");
@@ -459,15 +482,59 @@ function ChatbotTab() {
     if (!input.trim() || thinking) return;
     const text = input.trim();
     setInput("");
-    setMsgs(prev => [...prev, { role: "user", text, at: new Date().toISOString() }]);
+    const userMsg: BotMessage = { role: "user", text, at: new Date().toISOString() };
+    setMsgs(prev => [...prev, userMsg]);
     setThinking(true);
-    await new Promise(r => setTimeout(r, 900 + Math.random() * 600));
-    const d = await apiPost("chatbot", { message: text }).catch(() => ({ response: "Sorry, I'm having trouble right now. Please try again or contact a live agent." }));
-    setThinking(false);
-    setMsgs(prev => [...prev, { role: "bot", text: d.response ?? "Something went wrong.", at: new Date().toISOString() }]);
+
+    try {
+      // Build conversation history for Claude
+      const history = [...msgs, userMsg]
+        .filter(m => m.role === "user" || m.role === "bot")
+        .map(m => ({
+          role: m.role === "user" ? "user" : "assistant",
+          content: m.text,
+        }));
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          system: DADAR_SYSTEM_PROMPT,
+          messages: history,
+        }),
+      });
+
+      const data = await res.json() as { content?: { type: string; text: string }[]; error?: { message: string } };
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error?.message ?? "API error");
+      }
+
+      const reply = data.content?.find(b => b.type === "text")?.text
+        ?? "Sorry, I couldn't get a response. Please try again.";
+
+      setMsgs(prev => [...prev, { role: "bot", text: reply, at: new Date().toISOString() }]);
+    } catch {
+      setMsgs(prev => [...prev, {
+        role: "bot",
+        text: "দুঃখিত, এই মুহূর্তে সমস্যা হচ্ছে। একটু পরে আবার চেষ্টা করুন বা লাইভ চ্যাটে আমাদের এজেন্টের সাথে কথা বলুন।",
+        at: new Date().toISOString(),
+      }]);
+    } finally {
+      setThinking(false);
+    }
   }
 
-  const QUICK = ["Track my order", "Return policy", "Payment methods", "When will it arrive?", "Cancel my order", "Loyalty points"];
+  const QUICK = [
+    "আমার অর্ডার কোথায়?",
+    "রিটার্ন পলিসি কী?",
+    "পেমেন্ট মেথড কী কী?",
+    "ডেলিভারি কতদিনে হবে?",
+    "অর্ডার ক্যান্সেল করব কীভাবে?",
+    "লয়্যালটি পয়েন্ট কীভাবে ব্যবহার করব?",
+  ];
 
   return (
     <div className="surface-card flex flex-col rounded-3xl overflow-hidden" style={{ height: 520 }}>
@@ -475,21 +542,32 @@ function ChatbotTab() {
         <div className="bg-primary/10 rounded-xl p-1.5"><Bot className="size-4 text-primary" /></div>
         <div>
           <span className="text-sm font-semibold">Dadar AI Assistant</span>
-          <p className="text-[11px] text-muted-foreground">Always available · instant replies</p>
+          <p className="text-[11px] text-muted-foreground">সবসময় উপলব্ধ · তাৎক্ষণিক সাহায্য</p>
         </div>
+        <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+          <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> AI
+        </span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {msgs.map((m, i) => (
           <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-            <div className={cn("max-w-[85%] rounded-2xl px-3 py-2 text-xs", m.role === "user" ? "bg-primary text-primary-foreground" : "bg-surface-muted")}>
-              <p className="whitespace-pre-wrap">{m.text}</p>
+            {m.role === "bot" && (
+              <div className="bg-primary/10 mr-2 mt-1 flex size-6 shrink-0 items-center justify-center rounded-full">
+                <Bot className="size-3.5 text-primary" />
+              </div>
+            )}
+            <div className={cn("max-w-[80%] rounded-2xl px-3 py-2 text-xs", m.role === "user" ? "bg-primary text-primary-foreground" : "bg-surface-muted")}>
+              <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
               <p className={cn("mt-0.5 text-[10px]", m.role === "user" ? "text-primary-foreground/70 text-right" : "text-muted-foreground")}>{new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
             </div>
           </div>
         ))}
         {thinking && (
-          <div className="flex justify-start">
+          <div className="flex justify-start items-end gap-2">
+            <div className="bg-primary/10 flex size-6 shrink-0 items-center justify-center rounded-full">
+              <Bot className="size-3.5 text-primary" />
+            </div>
             <div className="bg-surface-muted rounded-2xl px-3 py-2.5">
               <div className="flex gap-1">
                 {[0, 1, 2].map(i => <span key={i} className="size-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
@@ -500,10 +578,10 @@ function ChatbotTab() {
         <div ref={bottomRef} />
       </div>
 
-      {msgs.length < 3 && (
+      {msgs.length <= 1 && (
         <div className="px-3 pb-2 flex flex-wrap gap-1.5">
           {QUICK.map(q => (
-            <button key={q} onClick={() => { setInput(q); }} className="bg-surface-muted hover:bg-primary-soft rounded-full px-2.5 py-1 text-[11px] font-medium transition">
+            <button key={q} onClick={() => setInput(q)} className="bg-surface-muted hover:bg-primary-soft rounded-full px-2.5 py-1 text-[11px] font-medium transition">
               {q}
             </button>
           ))}
@@ -511,7 +589,7 @@ function ChatbotTab() {
       )}
 
       <form onSubmit={send} className="flex gap-2 px-3 py-3 border-t border-border">
-        <Input value={input} onChange={e => setInput(e.target.value)} placeholder="Ask me anything about your order…" className="flex-1" />
+        <Input value={input} onChange={e => setInput(e.target.value)} placeholder="আপনার প্রশ্ন লিখুন…" className="flex-1" />
         <Button type="submit" variant="hero" size="sm" disabled={thinking || !input.trim()}>
           <Send className="size-4" />
         </Button>
