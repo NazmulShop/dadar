@@ -54,6 +54,7 @@ import {
 import { logAdminActivity } from "../lib/activityLog";
 import { clientIp } from "../lib/cors";
 import { requireAuth } from "../middleware/auth";
+import { rateLimit } from "../lib/rateLimit";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -628,24 +629,29 @@ app.post("/admin-login/verify-otp", async (c) => {
 
   const { ticket: ticketId, code } = parsed.data;
 
-  // Rate limit: 5 attempts per ticket per 15 minutes
-  const rlKey = `admin-otp-verify:${ticketId}`;
-  const allowed = await rateLimit(c.env, rlKey, 5, 15 * 60 * 1000);
-  if (!allowed) {
-    return c.json({ error: "Too many attempts. Please sign in again." }, 429);
+  try {
+    // Rate limit: 5 attempts per ticket per 15 minutes
+    const rlKey = `admin-otp-verify:${ticketId}`;
+    const allowed = await rateLimit(c.env, rlKey, 5, 15 * 60 * 1000);
+    if (!allowed) {
+      return c.json({ error: "Too many attempts. Please sign in again." }, 429);
+    }
+
+    const ticket = await readAdminLoginTicket(c.env, ticketId);
+    if (!ticket || ticket.stage !== "password_ok") {
+      return c.json({ error: "Verification session expired. Please sign in again." }, 400);
+    }
+
+    const valid = await consumeOtp(c.env, ticket.email.toLowerCase(), code, "admin_login");
+    if (!valid) return c.json({ error: "Invalid or expired code." }, 400);
+
+    await advanceAdminLoginTicket(c.env, ticketId, { ...ticket, stage: "otp_ok" });
+
+    return c.json({ stage: "secret" });
+  } catch (err) {
+    console.error("[admin-login/verify-otp] Unexpected error:", err);
+    return c.json({ error: "Internal server error. Please try again." }, 500);
   }
-
-  const ticket = await readAdminLoginTicket(c.env, ticketId);
-  if (!ticket || ticket.stage !== "password_ok") {
-    return c.json({ error: "Verification session expired. Please sign in again." }, 400);
-  }
-
-  const valid = await consumeOtp(c.env, ticket.email.toLowerCase(), code, "admin_login");
-  if (!valid) return c.json({ error: "Invalid or expired code." }, 400);
-
-  await advanceAdminLoginTicket(c.env, ticketId, { ...ticket, stage: "otp_ok" });
-
-  return c.json({ stage: "secret" });
 });
 
 // ───────────────────  /admin-login/verify-secret  ──────────────────────────

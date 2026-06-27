@@ -384,7 +384,7 @@ const REWARD_TIERS = [
 ] as const;
 
 function tierFor(balance: number) {
-  let current = REWARD_TIERS[0];
+  let current: (typeof REWARD_TIERS)[number] = REWARD_TIERS[0];
   for (const t of REWARD_TIERS) {
     if (balance >= t.min) current = t;
   }
