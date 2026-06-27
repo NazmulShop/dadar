@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Dadar Shop</title>
+    <meta name="description" content="Dadar Shop — mobile-first online marketplace." />
+    <!-- Tells iOS/Android to paint the status bar, home-indicator strip, and
+         browser UI in the matching tone instead of defaulting to white —
+         this is what was showing as a white sliver at the very top/bottom.
+         A single tag (no `media` attribute) is used and kept in sync by
+         JS below and by themeStore.tsx on every later toggle, so it always
+         reflects the user's chosen theme rather than just the OS's. -->
+    <meta name="theme-color" content="#fcfaf4" />
+    <script>
+      try {
+        var t = localStorage.getItem("dadar.theme.v1") || "system";
+        var dark =
+          t === "dark" ||
+          (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+        // Paint the real background color immediately, before the stylesheet
+        // (or React) has loaded, so there is zero white flash on first paint
+        // or while the page is still hydrating. Cleared once React mounts —
+        // see themeStore.tsx — so the real CSS gradient can take over.
+        document.documentElement.style.backgroundColor = dark ? "#05100c" : "#fcfaf4";
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", dark ? "#05100c" : "#fcfaf4");
+      } catch (e) {}
+    </script>
+    <script>
+      // Belt-and-suspenders: block pinch / double-tap zoom on iOS Safari,
+      // which sometimes ignores the maximum-scale viewport directive.
+      document.addEventListener('gesturestart', function(e){ e.preventDefault(); }, { passive: false });
+      document.addEventListener('gesturechange', function(e){ e.preventDefault(); }, { passive: false });
+      document.addEventListener('dblclick', function(e){ e.preventDefault(); }, { passive: false });
+      document.addEventListener('touchmove', function(e){ if (e.touches && e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
