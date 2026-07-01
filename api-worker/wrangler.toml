@@ -1,0 +1,59 @@
+name = "dadar-shop-api"
+main = "src/index.ts"
+compatibility_date = "2026-06-21"
+compatibility_flags = ["nodejs_compat"]
+
+# ───── D1 (SQLite) — available on free plan ─────
+[[d1_databases]]
+binding = "DB"
+database_name = "dadar_shop"
+database_id = "0710a836-6be0-49ed-af88-3d2dd27defd6"
+migrations_dir = "migrations"
+
+# ───── KV — sessions + revocation tombstones + rate limits ─────
+[[kv_namespaces]]
+binding = "SESSIONS_KV"
+id = "b8995e2f261b485793ed00d5d54bc2d3"
+
+[[kv_namespaces]]
+binding = "RATE_KV"
+id = "3102f3bc44764311882fc90d932e94f5"
+
+# ───── R2 — image uploads (NOT free plan) ─────
+# [[r2_buckets]]
+# binding = "UPLOADS"
+# bucket_name = "dadar-uploads"
+
+# ───── Durable Objects — AdminHub (NOT free plan) ─────
+# [[durable_objects.bindings]]
+# name = "ADMIN_HUB"
+# class_name = "AdminHub"
+#
+# [[migrations]]
+# tag = "v1"
+# new_classes = ["AdminHub"]
+
+# ───── Cron — health check every 15 minutes ─────
+# Was "every minute" (1,440 runs/day). Each run writes to SESSIONS_KV
+# (see src/lib/health.ts), which alone could burn through the entire
+# account-wide 1,000-write/day Workers KV free-plan quota with zero real
+# user traffic. A health check does not need minute-level resolution —
+# every 15 minutes (96 writes/day) is more than enough and leaves the KV
+# quota free for actual usage (admin settings saves, etc).
+[triggers]
+crons = ["*/15 * * * *"]
+
+# ───── Plain env vars ─────
+[vars]
+APP_URL = "https://dadar-shop-api.shop-io.workers.dev"
+CORS_ORIGIN = "https://dadar.shop-io.workers.dev"
+SUPER_ADMIN_ENABLED = "false"
+BREVO_FROM_EMAIL = "Dadar Shop <dadarshop.otp@gmail.com>"
+IMAGE_CDN_BASE = ""
+NODE_ENV = "production"
+
+# Local-dev overrides
+[env.dev.vars]
+CORS_ORIGIN = "http://localhost:5173"
+APP_URL = "http://localhost:8787"
+NODE_ENV = "development"
