@@ -1,0 +1,15 @@
+# Dadar Shop — frontend (SPA) Worker config.
+#
+# This deploys the built `dist/` folder as static assets on Cloudflare
+# Workers (Cloudflare's current platform for static sites — what used to be
+# a separate "Pages" product is now part of Workers & Pages → Workers).
+#
+# There is no backend code here — this Worker only serves the built SPA
+# files and falls back to index.html for client-side routing.
+
+name = "dadar"
+compatibility_date = "2026-06-20"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
